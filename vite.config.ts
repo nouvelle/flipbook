@@ -17,7 +17,7 @@ export default defineConfig({
         start_url: `/${repo}/`,
         scope: `/${repo}/`,
         display: "standalone",
-        theme_color: "#1f6feb",
+        theme_color: "#333333",
         background_color: "#000000",
         // 先頭にスラッシュを付けない（base配下で解決させる）
         icons: [
