@@ -9,6 +9,7 @@ type ImageItem = {
 };
 
 type SizePreset = "stage" | 256 | 512 | 720;
+type Drawable = { source: CanvasImageSource; revoke?: () => void };
 
 export default function App() {
   const [images, setImages] = useState<ImageItem[]>([]);
@@ -63,13 +64,15 @@ export default function App() {
   }, [playing, images.length, frameMs]);
 
   // フォルダ読み込み
-  const onPickFolder = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const onPickFiles = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     const imgs = files
       .filter((f) => f.type.startsWith("image/"))
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }))
       .map((file) => ({ name: file.name, url: URL.createObjectURL(file), file }));
     setImages((prev) => { prev.forEach((p) => URL.revokeObjectURL(p.url)); return imgs; });
+    // ※「追加」動作にしたい場合は↑を次の1行に置き換え（重複名は適宜除外してね）
+    // setImages((prev) => [...prev, ...imgs].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })));
     setIndex(0); accum.current = 0; lastTick.current = null;
   }, []);
 
@@ -80,27 +83,29 @@ export default function App() {
   const exportGif = useCallback(async () => {
     if (!images.length || !stageRef.current) return;
 
+    // 出力正方形サイズ（既存の UI 変数に合わせて調整してください）
     const stageSide = Math.round(stageRef.current.clientWidth);
     const side =
       sizePreset === "stage" ? stageSide :
       typeof sizePreset === "number" ? sizePreset :
       customSize;
 
+    // 描画キャンバス
     const canvas = document.createElement("canvas");
     canvas.width = side;
     canvas.height = side;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    // gif.js 初期化
     const gif = new GIF({
       workers: 2,
       workerScript: workerURL,
       width: side,
       height: side,
-      quality,
+      quality,   // 1(最高)〜30(低)
       repeat: 0,
-      // background を指定すると一部ビューワの互換性が良くなることがあります
-      background: bgColor
+      background: bgColor, // 互換性のため背景指定
     });
 
     for (const item of images) {
@@ -108,50 +113,125 @@ export default function App() {
       ctx.fillStyle = bgColor;
       ctx.fillRect(0, 0, side, side);
 
-      const bmp = await createImageBitmap(item.file);
-      const scale = Math.min(side / bmp.width, side / bmp.height);
-      const dw = Math.round(bmp.width * scale);
-      const dh = Math.round(bmp.height * scale);
+      // ★ ここが loadDrawable の出番
+      const drawable = await loadDrawable(item.file);
+      const src = drawable.source; // CanvasImageSource（ImageBitmap or HTMLImageElement）
+
+      // contain で中央寄せ描画
+      // @ts-expect-error: width/height は CanvasImageSource によって存在したりしなかったり
+      const srcW: number = (src.width as number) ?? (src as any).naturalWidth;
+      // @ts-expect-error: width/height は CanvasImageSource によって存在したりしなかったり
+      const srcH: number = (src.height as number) ?? (src as any).naturalHeight;
+
+      const scale = Math.min(side / srcW, side / srcH);
+      const dw = Math.round(srcW * scale);
+      const dh = Math.round(srcH * scale);
       const dx = Math.floor((side - dw) / 2);
       const dy = Math.floor((side - dh) / 2);
-      ctx.drawImage(bmp, dx, dy, dw, dh);
-      bmp.close();
 
+      ctx.drawImage(src as any, dx, dy, dw, dh);
+
+      // 取り込み（copy:true で現在のピクセルを固定）
       gif.addFrame(ctx, { copy: true, delay: frameMs, dispose: 2 });
+
+      // 後片付け
+      if ("close" in src && typeof (src as any).close === "function") {
+        try { (src as ImageBitmap).close(); } catch {}
+      }
+      drawable.revoke?.();
     }
 
-    gif.on("finished", (blob) => {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "flipbook.gif";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+    gif.on("finished", (blob: Blob) => {
+      // ★ ここが downloadBlob の出番
+      downloadBlob(blob, "flipbook.gif");
     });
 
     gif.render();
   }, [images, sizePreset, customSize, bgColor, quality, frameMs]);
+
+
+  // 画像読み込み：createImageBitmap が使えない環境や HEIC/HEIF でも安全に読み込む
+  async function loadDrawable(file: File): Promise<Drawable> {
+    try {
+      const bmp = await createImageBitmap(file);
+      return { source: bmp }; // ImageBitmap は後で close() できるが必須ではない
+    } catch {
+      // フォールバック：Blob URL + <img>
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.decoding = "async";
+      img.src = url;
+      await img.decode();
+      return {
+        source: img,
+        revoke: () => URL.revokeObjectURL(url),
+      };
+    }
+  }
+
+  // Blob をダウンロード（iOS Safari は新規タブで開いて長押し保存させる）
+  function downloadBlob(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+
+    // iOS Safari 対策：download未対応なら新規タブで開く
+    const canDownload = "download" in HTMLAnchorElement.prototype;
+    if (canDownload) {
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } else {
+      window.open(url, "_blank"); // ユーザー操作直後の呼び出しであればブロックされにくい
+    }
+
+    URL.revokeObjectURL(url);
+  }
+
+  // webkitdirectory が使えるか（PCのChrome/Edge/Safariは多くが◯、スマホは✕が多い）
+  const supportsDirectory = useMemo(() => {
+    const input = document.createElement("input");
+    return "webkitdirectory" in (input as any);
+  }, []);
 
   return (
     <div style={styles.page}>
       <h1 style={styles.title}>Flipbook Viewer</h1>
 
       <div style={styles.controls}>
-        <label style={styles.folderBtn}>
-          📁 フォルダを選択
-          <input
-            type="file"
-            // @ts-expect-error: webkitdirectory は型定義に無い
-            webkitdirectory=""
-            directory=""
-            multiple
-            accept="image/*"
-            onChange={onPickFolder}
-            style={{ display: "none" }}
-          />
-        </label>
+        {/* 画像読み込みUI */}
+        {supportsDirectory ? (
+          <label style={styles.folderBtn}>
+            📁 フォルダを選択
+            <input
+              type="file"
+              // @ts-expect-error: webkitdirectory は型未定義
+              webkitdirectory=""
+              directory=""
+              multiple
+              accept="image/*"
+              onChange={onPickFiles}
+              style={{ display: "none" }}
+            />
+          </label>
+        ) : (
+          <label style={styles.folderBtn}>
+            🖼 画像を選択（複数可）
+            <input
+              type="file"
+              multiple
+              accept="image/*"
+              onChange={onPickFiles}
+              style={{ display: "none" }}
+            />
+          </label>
+        )}
+        {!supportsDirectory && (
+          <small style={{ opacity: 0.7 }}>
+            ※ お使いの端末ではフォルダ選択はできません。複数画像をまとめて選んでください。
+          </small>
+        )}
 
         <button onClick={start} disabled={!hasImages || playing} style={styles.button}>▶ 再生</button>
         <button onClick={stop} disabled={!playing} style={styles.button}>⏸ 停止</button>
