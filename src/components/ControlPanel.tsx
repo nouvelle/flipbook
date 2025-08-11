@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { SizePreset } from "../types";
 
 interface Props {
@@ -11,14 +12,69 @@ interface Props {
   onExport: () => void; exportDisabled: boolean;
 }
 
+// コンポーネント先頭あたりに追加
+const numericKbdProps = {
+  inputMode: "numeric" as const,
+  pattern: "[0-9]*",
+  enterKeyHint: "done" as const,
+  autoComplete: "off" as const,
+};
+
+
 export default function ControlPanel(p: Props) {
+  const [customSizeText, setCustomSizeText] = useState(String(p.customSize));
+  const [frameMsText, setFrameMsText] = useState(String(p.frameMs));
+  const [qualityText, setQualityText] = useState(String(p.quality));
+
+  useEffect(() => setCustomSizeText(String(p.customSize)), [p.customSize]);
+  useEffect(() => setFrameMsText(String(p.frameMs)), [p.frameMs]);
+  useEffect(() => setQualityText(String(p.quality)), [p.quality]);
+
+  // カスタムサイズ
+  const commitCustomSize = () => {
+    const n = Number(customSizeText);
+    if (!Number.isFinite(n)) {
+      // 無効入力は親の値に巻き戻し
+      setCustomSizeText(String(p.customSize));
+      return;
+    }
+    const clamped = Math.min(2048, Math.max(64, Math.round(n)));
+    p.setCustomSize(clamped);
+    setCustomSizeText(String(clamped));
+  };
+
+  // フレーム間隔：50〜5000、step=50 にスナップ
+  const commitFrameMs = () => {
+    const n = Number(frameMsText);
+    if (!Number.isFinite(n)) return setFrameMsText(String(p.frameMs));
+    const snapped = Math.round(n / 50) * 50; // step=50 に寄せる
+    const clamped = Math.min(5000, Math.max(50, snapped));
+    p.setFrameMs(clamped);
+    setFrameMsText(String(clamped));
+  };
+
+  const commitQuality = () => {
+    const n = Number(qualityText);
+    if (!Number.isFinite(n)) {
+      setQualityText(String(p.quality));
+      return;
+    }
+    const rounded = Math.round(n);                // step=1 に合わせて整数化
+    const clamped = Math.min(30, Math.max(1, rounded));
+    p.setQuality(clamped);
+    setQualityText(String(clamped));
+  };
+
   return (
     <div style={panel}>
       <Field label="フレーム間隔（ms）">
-        <input
-          type="number" min={50} max={5000} step={50} value={p.frameMs}
-          onChange={(e) => p.setFrameMs(limitNum(e.currentTarget.value, 50, 5000, 500))}
+        <input type="number" min={50} max={5000} step={50}
+          value={frameMsText}
+          onChange={(e) => setFrameMsText(e.currentTarget.value)}
+          onBlur={commitFrameMs}
+          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
           style={input}
+          {...numericKbdProps}
         />
       </Field>
 
@@ -37,10 +93,15 @@ export default function ControlPanel(p: Props) {
           <option value="720">720 × 720</option>
         </select>
         <span style={{ marginLeft: 8 }}>カスタム：</span>
-        <input
-          type="number" min={64} max={2048} step={32} value={p.customSize}
-          onChange={(e) => p.setCustomSize(limitNum(e.currentTarget.value, 64, 2048, 640))}
+        <input type="number" min={64} max={2048} step={32}
+          value={customSizeText}                             // ← 文字列 state を表示
+          onChange={(e) => setCustomSizeText(e.currentTarget.value)}  // ← 入力中はそのまま保持
+          onBlur={commitCustomSize}                          // ← フォーカス外れたら確定
+          onKeyDown={(e) => { if (e.key === "Enter") {      // ← Enter でも確定
+            e.currentTarget.blur();
+          }}}
           style={{ ...input, width: 100 }}
+          {...numericKbdProps}
         /><span> px</span>
       </Field>
 
@@ -49,10 +110,13 @@ export default function ControlPanel(p: Props) {
       </Field>
 
       <Field label="品質（1=高品質, 30=低）">
-        <input
-          type="number" min={1} max={30} step={1} value={p.quality}
-          onChange={(e) => p.setQuality(limitNum(e.currentTarget.value, 1, 30, 10))}
+        <input type="number" min={1} max={30} step={1}
+          value={qualityText}                                   // ← 文字列バッファ
+          onChange={(e) => setQualityText(e.currentTarget.value)} // ← 入力中はそのまま
+          onBlur={commitQuality}                                   // ← フォーカス外で確定
+          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} // ← Enter確定
           style={{ ...input, width: 80 }}
+          {...numericKbdProps}
         />
       </Field>
 
