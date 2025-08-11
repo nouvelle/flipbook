@@ -157,12 +157,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function limitNum(v: string, min: number, max: number, fallback: number) {
-  const n = Number(v);
-  if (Number.isFinite(n)) return Math.min(max, Math.max(min, n));
-  return fallback;
-}
-
 const panel: React.CSSProperties = { display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", alignItems: "center", marginBottom: 12 };
 const field: React.CSSProperties = { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" };
 const input: React.CSSProperties = { padding: "6px 8px", borderRadius: 8, border: "1px solid #d1d5db" };
