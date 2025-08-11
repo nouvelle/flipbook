@@ -10,6 +10,7 @@ interface Props {
   importMaxEdge: number | "off"; setImportMaxEdge: (v: number | "off") => void;
   importFormat: "image/jpeg" | "image/webp"; setImportFormat: (v: "image/jpeg" | "image/webp") => void;
   onExport: () => void; exportDisabled: boolean;
+  supersample: 1 | 2 | 3; setSupersample: (v: 1 | 2 | 3) => void;
 }
 
 // コンポーネント先頭あたりに追加
@@ -141,6 +142,17 @@ export default function ControlPanel(p: Props) {
         </select>
       </Field>
 
+      <Field label="高画質サンプリング">
+        <select
+          value={String(p.supersample)}
+          onChange={(e) => p.setSupersample(Number(e.currentTarget.value) as 1 | 2 | 3)}
+          style={select}
+        >
+          <option value="1">標準（1x）</option>
+          <option value="2">高（2x）</option>
+          <option value="3">最高（3x・重い）</option>
+        </select>
+      </Field>
       <button onClick={p.onExport} disabled={p.exportDisabled} style={{ ...button, fontWeight: 600 }}>
         🧩 GIFを書き出し
       </button>

@@ -21,6 +21,7 @@ export default function App() {
   const [importFormat, setImportFormat] = useState<"image/jpeg" | "image/webp">("image/jpeg");
   const [exporting, setExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
+  const [supersample, setSupersample] = useState<1 | 2 | 3>(1);
   
   const stageRef = useRef<HTMLDivElement | null>(null);
   const exportAbortRef = useRef<AbortController | null>(null);
@@ -70,7 +71,7 @@ export default function App() {
 
       const blob = await buildGif(
         images,
-        { side, frameMs, bgColor, quality },
+        { side, frameMs, bgColor, quality, supersample },
         (p) => setExportProgress(p),   // 0..1
         ctrl.signal
       );
@@ -119,6 +120,7 @@ export default function App() {
         importMaxEdge={importMaxEdge} setImportMaxEdge={setImportMaxEdge}
         importFormat={importFormat} setImportFormat={setImportFormat}
         onExport={exportGif} exportDisabled={!hasImages}
+        supersample={supersample} setSupersample={setSupersample}
       />
 
       {/* ★進捗バー（書き出し中のみ表示） */}
