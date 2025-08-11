@@ -125,7 +125,7 @@ export default function App() {
         </div>
       )}
 
-      <FlipbookStage stageRef={stageRef} imageUrl={current?.url} alt={current?.name} />
+      <FlipbookStage ref={stageRef} imageUrl={current?.url} alt={current?.name} />
     </div>
   );
 }

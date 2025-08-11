@@ -1,10 +1,11 @@
-interface Props {
-  stageRef: React.RefObject<HTMLDivElement>;
+import { forwardRef } from "react";
+
+type Props = {
   imageUrl?: string;
   alt?: string;
-}
+};
 
-export default function FlipbookStage({ stageRef, imageUrl, alt }: Props) {
+const FlipbookStage = forwardRef<HTMLDivElement, Props>(({ imageUrl, alt }, stageRef) => {
   return (
     <div ref={stageRef} style={stage}>
       {imageUrl ? (
@@ -14,7 +15,9 @@ export default function FlipbookStage({ stageRef, imageUrl, alt }: Props) {
       )}
     </div>
   );
-}
+});
+
+export default FlipbookStage;
 
 const stage: React.CSSProperties = {
   width: "min(90vw, 900px)",
@@ -26,4 +29,11 @@ const stage: React.CSSProperties = {
   placeItems: "center",
   overflow: "hidden",
 };
-const img: React.CSSProperties = { width: "100%", height: "100%", objectFit: "contain", backgroundColor: "black", userSelect: "none", display: "block" };
+const img: React.CSSProperties = {
+  width: "100%",
+  height: "100%",
+  objectFit: "contain",
+  backgroundColor: "black",
+  userSelect: "none",
+  display: "block",
+};
