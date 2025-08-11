@@ -52,6 +52,17 @@ export default function App() {
     exportAbortRef.current?.abort();
   }, []);
 
+  // 画像保存
+  const isMobile = (navigator as any).userAgentData?.mobile || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  const saveGif = async (blob: Blob) => {
+    if (isMobile) {
+      const shared = await tryShareOrDownload(blob, (b) => downloadBlob(b, "flipbook.gif"));
+      if (shared) return;
+    }
+    downloadBlob(blob, "flipbook.gif"); // PCは常にDL
+  };
+
   const exportGif = useCallback(async () => {
     if (!hasImages || !stageRef.current || exporting) return;
     // 再生中なら止めてリソース節約（任意）
@@ -76,10 +87,8 @@ export default function App() {
         ctrl.signal
       );
 
-      // 共有できる端末なら共有、ダメなら従来どおりDL
-      await tryShareOrDownload(blob, (b) => downloadBlob(b, "flipbook.gif"));
-
-      downloadBlob(blob, "flipbook.gif");
+      // 画像保存
+      await saveGif(blob);
     } catch (e: any) {
       if (e instanceof DOMException && e.name === "AbortError") {
         // キャンセル時：トーストなど任意
