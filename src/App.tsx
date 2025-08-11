@@ -7,6 +7,7 @@ import { buildGif } from "./features/exportGif";
 import FilePicker from "./components/FilePicker";
 import ControlPanel from "./components/ControlPanel";
 import FlipbookStage from "./components/FlipbookStage";
+import ProgressBar from "./components/ProgressBar";
 
 export default function App() {
   const [images, setImages] = useState<ImageItem[]>([]);
@@ -17,8 +18,11 @@ export default function App() {
   const [quality, setQuality] = useState<number>(10);
   const [importMaxEdge, setImportMaxEdge] = useState<number | "off">("off");
   const [importFormat, setImportFormat] = useState<"image/jpeg" | "image/webp">("image/jpeg");
-
+  const [exporting, setExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
+  
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const exportAbortRef = useRef<AbortController | null>(null);
   const { index, setIndex, playing, start, stop, reset } = usePlayback(images.length, frameMs);
 
   const hasImages = images.length > 0;
@@ -41,17 +45,50 @@ export default function App() {
   // 後片付け
   useEffect(() => () => { images.forEach((p) => URL.revokeObjectURL(p.url)); }, [images]);
 
-  const exportGif = useCallback(async () => {
-    if (!hasImages || !stageRef.current) return;
-    const stageSide = Math.round(stageRef.current.clientWidth);
-    const side =
-      sizePreset === "stage" ? stageSide :
-      typeof sizePreset === "number" ? sizePreset :
-      customSize;
+  // キャンセル操作
+  const cancelExport = useCallback(() => {
+    exportAbortRef.current?.abort();
+  }, []);
 
-    const blob = await buildGif(images, { side, frameMs, bgColor, quality });
-    downloadBlob(blob, "flipbook.gif");
-  }, [hasImages, stageRef, sizePreset, customSize, images, frameMs, bgColor, quality]);
+  const exportGif = useCallback(async () => {
+    if (!hasImages || !stageRef.current || exporting) return;
+    // 再生中なら止めてリソース節約（任意）
+    if (playing) stop();
+
+    setExporting(true);
+    setExportProgress(0);
+    const ctrl = new AbortController();
+    exportAbortRef.current = ctrl;
+
+    try {
+      const stageSide = Math.round(stageRef.current.clientWidth);
+      const side =
+        sizePreset === "stage" ? stageSide :
+        typeof sizePreset === "number" ? sizePreset :
+        customSize;
+
+      const blob = await buildGif(
+        images,
+        { side, frameMs, bgColor, quality },
+        (p) => setExportProgress(p),   // 0..1
+        ctrl.signal
+      );
+
+      downloadBlob(blob, "flipbook.gif");
+    } catch (e: any) {
+      if (e instanceof DOMException && e.name === "AbortError") {
+        // キャンセル時：トーストなど任意
+        console.info("Export aborted.");
+      } else {
+        console.error(e);
+        alert("GIF の書き出し中にエラーが発生しました。");
+      }
+    } finally {
+      setExporting(false);
+      setExportProgress(0);
+      exportAbortRef.current = null;
+    }
+  }, [hasImages, stageRef, sizePreset, customSize, images, frameMs, bgColor, quality, exporting, playing, stop]);
 
   return (
     <div style={{ fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif", padding: 16 }}>
@@ -79,6 +116,14 @@ export default function App() {
         importFormat={importFormat} setImportFormat={setImportFormat}
         onExport={exportGif} exportDisabled={!hasImages}
       />
+
+      {/* ★進捗バー（書き出し中のみ表示） */}
+      {exporting && (
+        <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+          <ProgressBar progress={exportProgress} label={`GIF 書き出し中… ${Math.round(exportProgress * 100)}%`} />
+          <button onClick={cancelExport} style={btn}>キャンセル</button>
+        </div>
+      )}
 
       <FlipbookStage stageRef={stageRef} imageUrl={current?.url} alt={current?.name} />
     </div>
