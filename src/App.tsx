@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ImageItem, SizePreset } from "./types";
+import { tryShareOrDownload } from "./helpers/share";
 import { downloadBlob } from "./utils/download";
 import { downscaleIfNeeded } from "./utils/image";
 import { usePlayback } from "./hooks/usePlayback";
@@ -73,6 +74,9 @@ export default function App() {
         (p) => setExportProgress(p),   // 0..1
         ctrl.signal
       );
+
+      // 共有できる端末なら共有、ダメなら従来どおりDL
+      await tryShareOrDownload(blob, (b) => downloadBlob(b, "flipbook.gif"));
 
       downloadBlob(blob, "flipbook.gif");
     } catch (e: any) {
