@@ -15,6 +15,9 @@ export default function App() {
   const [images, setImages] = useState<ImageItem[]>([]);
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [importMaxEdge, setImportMaxEdge] = useState<number | "off">(1024);
+  const [importFormat, setImportFormat] = useState<"image/jpeg" | "image/webp">("image/jpeg");
+
 
   // 追加オプション
   const [frameMs, setFrameMs] = useState<number>(500);            // プレビュー＆書き出しのフレーム間隔
@@ -64,17 +67,40 @@ export default function App() {
   }, [playing, images.length, frameMs]);
 
   // フォルダ読み込み
-  const onPickFiles = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const onPickFiles = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
-    const imgs = files
-      .filter((f) => f.type.startsWith("image/"))
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }))
-      .map((file) => ({ name: file.name, url: URL.createObjectURL(file), file }));
-    setImages((prev) => { prev.forEach((p) => URL.revokeObjectURL(p.url)); return imgs; });
-    // ※「追加」動作にしたい場合は↑を次の1行に置き換え（重複名は適宜除外してね）
+    const imageFiles = files.filter((f) => f.type.startsWith("image/"));
+
+    const processed: { name: string; url: string; file: ImageBinary }[] = [];
+
+    for (const f of imageFiles) {
+      const bin =
+        importMaxEdge === "off"
+          ? f
+          : await downscaleIfNeeded(f, importMaxEdge, importFormat, 0.85);
+
+      const url = URL.createObjectURL(bin);
+      processed.push({ name: f.name, url, file: bin });
+      // 小休止を挟んで描画を更新（大量ファイルでの固まり防止・任意）
+      await new Promise((r) => setTimeout(r, 0));
+    }
+
+    const imgs = processed
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+
+    // 置き換え（追加にしたいならコメント行の方を使ってください）
+    setImages((prev) => {
+      prev.forEach((p) => URL.revokeObjectURL(p.url));
+      return imgs;
+    });
+    // 追記にする場合：
     // setImages((prev) => [...prev, ...imgs].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })));
-    setIndex(0); accum.current = 0; lastTick.current = null;
-  }, []);
+
+    setIndex(0);
+    accum.current = 0;
+    lastTick.current = null;
+  }, [importMaxEdge, importFormat]);
+
 
   // 後片付け
   useEffect(() => () => { images.forEach((p) => URL.revokeObjectURL(p.url)); }, [images]);
@@ -195,6 +221,83 @@ export default function App() {
     return "webkitdirectory" in (input as any);
   }, []);
 
+  type ImageBinary = File | Blob;
+
+  /** 画像を最大辺 maxEdge に縮小し、指定フォーマットで再圧縮して返す。
+   *  元が十分小さければオリジナルをそのまま返す。
+   */
+  async function downscaleIfNeeded(
+    file: File,
+    maxEdge: number,
+    format: "image/webp" | "image/jpeg" = "image/jpeg",
+    quality = 0.85
+  ): Promise<ImageBinary> {
+    // まずは汎用ローダーで寸法を取得
+    const drawable = await loadDrawable(file);
+    const src = drawable.source;
+
+    const { width: srcW, height: srcH } = getSourceSize(src);
+    const maxSrc = Math.max(srcW, srcH);
+
+    if (!srcW || !srcH) {
+      drawable.revoke?.();
+      return file; // 安全フォールバック
+    }
+    if (maxSrc <= maxEdge) {
+      // 縮小不要
+      if ("close" in src && typeof (src as any).close === "function") {
+        try { (src as ImageBitmap).close(); } catch {}
+      }
+      drawable.revoke?.();
+      return file;
+    }
+
+    const scale = maxEdge / maxSrc;
+    const w = Math.round(srcW * scale);
+    const h = Math.round(srcH * scale);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      if ("close" in src && typeof (src as any).close === "function") {
+        try { (src as ImageBitmap).close(); } catch {}
+      }
+      drawable.revoke?.();
+      return file;
+    }
+
+    // 高品質リサンプリング
+    ctx.imageSmoothingEnabled = true;
+    // @ts-expect-error Safari型には無いが実装はあることが多い
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(src as any, 0, 0, w, h);
+
+    const blob = await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob failed"))), format, quality)
+    );
+
+    if ("close" in src && typeof (src as any).close === "function") {
+      try { (src as ImageBitmap).close(); } catch {}
+    }
+    drawable.revoke?.();
+    return blob;
+  }
+
+  /** CanvasImageSource から幅・高さを安全に取り出す */
+  function getSourceSize(src: CanvasImageSource): { width: number; height: number } {
+    if (src instanceof HTMLImageElement) return { width: src.naturalWidth, height: src.naturalHeight };
+    if (src instanceof HTMLCanvasElement) return { width: src.width, height: src.height };
+    // @ts-expect-error: ImageBitmap は width/height を持つ
+    if (typeof (src as any).width === "number" && typeof (src as any).height === "number") {
+      // ImageBitmap など
+      return { width: (src as any).width, height: (src as any).height };
+    }
+    return { width: 0, height: 0 };
+  }
+
+
   return (
     <div style={styles.page}>
       <h1 style={styles.title}>Flipbook Viewer</h1>
@@ -308,6 +411,33 @@ export default function App() {
         <button onClick={exportGif} disabled={!hasImages} style={{ ...styles.button, fontWeight: 600 }}>
           🧩 GIFを書き出し
         </button>
+        <div style={styles.field}>
+          <label>読み込みリサイズ（最大辺）</label>
+          <select
+            value={String(importMaxEdge)}
+            onChange={(e) => {
+              const v = e.target.value;
+              setImportMaxEdge(v === "off" ? "off" : Number(v));
+            }}
+            style={styles.select}
+          >
+            <option value="off">オフ（オリジナルのまま）</option>
+            <option value="1024">1024 px</option>
+            <option value="1536">1536 px</option>
+            <option value="2048">2048 px</option>
+          </select>
+
+          <label style={{ marginLeft: 8 }}>形式</label>
+          <select
+            value={importFormat}
+            onChange={(e) => setImportFormat(e.target.value as typeof importFormat)}
+            style={styles.select}
+          >
+            <option value="image/jpeg">JPEG</option>
+            <option value="image/webp">WebP</option>
+          </select>
+        </div>
+
       </div>
 
       <div ref={stageRef} style={styles.stage}>
