@@ -4,14 +4,14 @@ declare module "gif.js" {
     workerScript?: string;
     width?: number;
     height?: number;
-    quality?: number;  // 小さいほど高品質（デフォ10〜20くらいが無難）
-    repeat?: number;   // 0: 無限ループ
+    quality?: number;
+    repeat?: number;
     background?: string | number;
   }
   export interface FrameOptions {
-    delay?: number;  // ms
-    copy?: boolean;  // true 推奨（キャンバスのピクセルを即コピー）
-    dispose?: 1 | 2 | 3; // 2: 背景で消去（互換性◎）
+    delay?: number;
+    copy?: boolean;
+    dispose?: 1 | 2 | 3;
   }
   export default class GIF {
     constructor(options?: GIFOptions);
